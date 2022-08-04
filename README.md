@@ -1,8 +1,10 @@
 # PyTorch Tools
 
-`pytorch_tools` is a collection of functions and classes for training and prediction in PyTorch.
+`pytorch_tools` is a collection of functions and classes for training and predicting in PyTorch.
 
 ## What is Included?
+
+(Mostly for binary segmentation at this point)
 
 - Losses. Common loss functions used for training models (like Dice).
 - Metrics. Functions to compute metrics (like IoU) and a meter class to keep track of them.

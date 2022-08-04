@@ -23,15 +23,15 @@ import numpy as np
 def paint_mask(mask, labels, cat2color, dark=True):
     """ Paint mask
 
-    Given a labeled image, return an image where each label is mapped to a
-    different color. 'cat2color' define a map: label -> color (int -> rgb)
+    Given a labeled image ('mask'), return an image where each label is mapped
+    to a different color. 'cat2color' define a map: label -> color (int -> rgb)
 
     Parameters
     ----------
     mask : np.ndarray
         single-channel integer image, shape (H, W)
-    n_cat : int
-        number of categories
+    labels : list
+        list of labels (unique values of 'mask'); e.g. [1, 2, 3, 4]
     cat2color : dict
         map label -> color (int -> rgb)
     dark : bool

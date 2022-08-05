@@ -1,6 +1,21 @@
 import torch
 from ..metrics.meter import AverageMeter
 
+def _message(meters):
+    """ Build message for each meter in meters. """
+    msgs = []
+    for key, meter in meters.items():
+        tmp = meter.avg
+        if tmp.size() == ():    # No dimensions
+            msg = f'({key}) {tmp.item():.5f}'
+        else:
+            arr = [f'{a.item():.5f}' for a in tmp]
+            msg = f'({key}) ' + ', '.join(arr)
+        msgs.append(msg)
+        
+    return ';'.join(msgs)
+
+
 def train(model, dataloader, loss_fn, optimizer, metrics,
           device=torch.device('cpu'), every_k=2):
     """ Train 'model' for one epoch (one full iteration of 'dataloader')
@@ -54,17 +69,17 @@ def train(model, dataloader, loss_fn, optimizer, metrics,
         
         # Metrics
         for key, metric in metrics.items():
-            meters[key].update(metric(pred, y).item(), x.size(0))
+            meters[key].update(metric(pred, y).detach(), x.size(0))
         
         # Print only every k steps and in the last iteration
         if (k % every_k) == 0 or k == n_batches-1:
-            s = [f'({key}) {meter.avg:.5f}' for key, meter in meters.items()]
-            s = ', '.join(s)
+            s = _message(meters)
             print(f'\rTrain: {k+1:5}/{n_batches}, Loss: {train_loss.avg:.5f}, Metrics: {s}', end='', flush=True)
 
 
     print()
     return train_loss, meters
+
 
 def validate(model, dataloader, metrics, device=torch.device('cpu'), every_k=2):
     """ Validate 'model' using 'dataloader' an the provided 'metrics'.
@@ -104,12 +119,11 @@ def validate(model, dataloader, metrics, device=torch.device('cpu'), every_k=2):
             
             # Metrics
             for key, metric in metrics.items():
-                meters[key].update(metric(pred, y).item(), x.size(0))
+                meters[key].update(metric(pred, y).detach(), x.size(0))
             
             # Print only every k steps and in the last iteration
             if (k % every_k) == 0 or k == n_batches-1:
-                s = [f'({key}) {meter.avg:.5f}' for key, meter in meters.items()]
-                s = ', '.join(s)
+                s = _message(meters)
                 print(f'\rValidate: {k+1:5}/{n_batches}, Metrics: {s}', end='', flush=True)
 
     print()

@@ -69,7 +69,7 @@ def train(model, dataloader, loss_fn, optimizer, metrics,
         
         # Metrics
         for key, metric in metrics.items():
-            meters[key].update(metric(pred, y).detach(), x.size(0))
+            meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
         
         # Print only every k steps and in the last iteration
         if (k % every_k) == 0 or k == n_batches-1:
@@ -119,7 +119,7 @@ def validate(model, dataloader, metrics, device=torch.device('cpu'), every_k=2):
             
             # Metrics
             for key, metric in metrics.items():
-                meters[key].update(metric(pred, y).detach(), x.size(0))
+                meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
             
             # Print only every k steps and in the last iteration
             if (k % every_k) == 0 or k == n_batches-1:

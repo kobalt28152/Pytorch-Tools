@@ -36,8 +36,7 @@ def pad_rb(img, tile_size=256, mode='reflect'):
     y_res = height - y_tiles * step    # the tiles in each dimmension (residuals)
     
     if x_res == 0 and y_res == 0:
-        if verbose: print('No padding needed')
-        return img, (y_tiles, x_tiles)
+        return img, (y_tiles, x_tiles), [(0, 0), (0, 0)]
     
     if x_res > 0: x_tiles += 1
     if y_res > 0: y_tiles += 1

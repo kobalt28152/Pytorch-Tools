@@ -96,30 +96,37 @@ def pad_lrtb(img, tile_size=256, step=128, mode='reflect'):
     return img_padded, (y_tiles, x_tiles), [(y_pad0, y_pad1), (x_pad0, x_pad1)]
 
 
-def unpad_img(img, pads):
+def unpad_img(img, pads, last=True):
     """ Unpad image
 
     Unpad the input image 'img' given 'pads' and return the unpadded image.
 
     Parameters
     ----------
-    img : np.ndarray
+    img : np.ndarray or torch.Tensor
         padded image
     pads : list[tuple]
         pads used for padding original image
+    last : bool
+        position of the "channels" dimension:
+            last=True  -> H x W x C
+            last=False -> C x H x W
+        For inputs with no channel" dimension (H x W) any of the the two
+        options yields a correct result.
 
     Returns
     -------
-    np.ndarray
+    np.ndarray or torch.Tensor
         unpadded image (with the original shape).
     """
-    h, w = img.shape[:2]
+    if last: h, w = img.shape[:2]
+    else: h, w = img.shape[1:]
+
     y_pad0, y_pad1 = pads[0]
     x_pad0, x_pad1 = pads[1]
     
     height = h - (y_pad0 + y_pad1)
     width = w - (x_pad0 + x_pad1)
     
-    # return img[y_pad0:y_pad0+height, x_pad0:x_pad0+width]
-    # More general (works for any number of channels)
-    return img[y_pad0:y_pad0+height, x_pad0:x_pad0+width, ...]
+    if last: return img[y_pad0:y_pad0+height, x_pad0:x_pad0+width, ...]
+    else: return img[..., y_pad0:y_pad0+height, x_pad0:x_pad0+width]

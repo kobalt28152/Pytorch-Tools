@@ -125,7 +125,7 @@ def predict_fast_batch(img, model, device, n_classes=1, preproc=None, postproc=N
 
     for j in range(y_tiles):
         for i in range(x_tiles):
-            k = j*y_tiles + i    # index in flattened tiles
+            k = j*x_tiles + i    # index in flattened tiles
             (y0,y1), (x0,x1) = yx_tile_to_pos(j, i, tile_size=tile_size, step=step)
             msk_pred[:, y0:y1, x0:x1] = p[k]
 

@@ -1,4 +1,44 @@
 import numpy as np
+import matplotlib.pyplot as plt
+
+def show_img_with_tiles(img, tiles, figsize, cmap='gray'):
+    """ Show image next a tiled image.
+
+    i.e., tiles     image
+         -----     -----
+         i i i |
+         i i i |   I
+         i i i |
+
+    Parameters
+    ----------
+    img : np.ndarray
+        image (H x W x C)
+    tiles : np.ndarray
+        tiled image (V x U x H x W x C)
+    figsize : tuple
+        figure size (width, height)
+    cmap : string
+        colormap
+    """
+    y_tiles, x_tiles = tiles.shape[:2]
+
+    fig = plt.figure(constrained_layout=False, figsize=figsize)
+    subfigs = fig.subfigures(1, 2, width_ratios=[1,1])
+
+    # Left Image: Display Tiles
+    ax_left = subfigs[0].subplots(y_tiles, x_tiles)
+    for j in range(y_tiles):
+        for i in range(x_tiles):
+            ax_left[j,i].imshow(tiles[j,i], cmap=cmap)
+            ax_left[j,i].set_axis_off()
+
+    # Right Image: Display Image
+    ax_right = subfigs[1].subplots(1, 1)
+    ax_right.imshow(img, cmap=cmap)
+    ax_right.set_axis_off()
+
+    plt.show()
 
 # Example of how to easily construct a cat2color: label -> rgb object:
 #

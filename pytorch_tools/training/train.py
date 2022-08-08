@@ -65,7 +65,7 @@ def train(model, dataloader, loss_fn, optimizer, metrics,
         optimizer.step()
         
         # Loss
-        train_loss.update(loss.item(), x.size(0))
+        train_loss.update(loss.detach().cpu(), x.size(0))
         
         # Metrics
         for key, metric in metrics.items():

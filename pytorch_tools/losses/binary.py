@@ -2,28 +2,7 @@ import torch
 from torch import nn
 from torch.nn.functional import logsigmoid
 
-def IoU(a, b, eps=1e-6):
-    """ Dice score
-
-    IoU(a,b) = inter(a, b) / union(a, b), where
-        union(a, b) = |a| + |b| - inter(a, b)
-
-    Parameters
-    ----------
-    a : torch.Tensor
-    b : torch.Tensor
-        input tensors, shape (N, 1, H, W)
-
-    Returns
-    -------
-    torch.Tensor
-        IoU scores for each element in the batch; i.e. (N, 1)
-    """
-    inter = torch.sum(a * b, dim=(1,2,3), dtype=torch.float32)
-    union = torch.sum(a, dim=(1,2,3), dtype=torch.float32) + torch.sum(b, dim=(1,2,3), dtype=torch.float32) - inter
-
-    iou = inter / union.clamp_min(eps)
-    return iou
+from .functional import IoU, Dice
 
 class IoU_Loss(nn.Module):
     """ IoU loss from logits for binary segmentation
@@ -39,7 +18,7 @@ class IoU_Loss(nn.Module):
         """
         super().__init__()
         self.eps = eps
-        
+
     def forward(self, pred, y):
         """
         Parameters
@@ -60,27 +39,6 @@ class IoU_Loss(nn.Module):
 
         return iou.mean()
 
-
-def Dice(a, b, eps=1e-6):
-    """ Dice score
-
-    Dice(a,b) = 2 * inter(a, b) / (|a| + |b|)
-
-    Parameters
-    ----------
-    a : torch.Tensor
-    b : torch.Tensor
-        input tensors, shape (N, 1, H, W)
-
-    Returns
-    -------
-    torch.Tensor
-        Dice scores for each element in the batch; i.e. (N, 1)
-    """
-    inter = torch.sum(a * b, dim=(1,2,3), dtype=torch.float32)
-    card = torch.sum(a, dim=(1,2,3), dtype=torch.float32) + torch.sum(b, dim=(1,2,3), dtype=torch.float32)
-
-    return (2.0*inter) / card.clamp_min(eps)    # clamp to a minimum (eps) to avoid division by 0
 
 class Dice_Loss(nn.Module):
     """ Dice Loss from logits for binary segmentation.

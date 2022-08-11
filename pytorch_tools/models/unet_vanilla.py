@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from .base import ConvBNReLU_2, encoder_block, decoder_block
+from .base import ConvBNReLU_2, encoder_block, decoder_block,
 
 
 def build_encoder(input_channels, depth, base_features):

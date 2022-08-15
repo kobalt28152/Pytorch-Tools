@@ -4,7 +4,7 @@ import torch.nn as nn
 from torchvision.models.resnet import resnet18, resnet34, resnet50, resnet101
 from torchvision.models.feature_extraction import create_feature_extractor
 
-from .base import decoder_block_up
+from .base import NNCatConv
 
 def resnet18_encoder(input_channels, pretrained=True, **kwargs):
     return_nodes = {
@@ -82,13 +82,15 @@ def build_decoder(name, **kwargs):
     """ Utility function to create the decoder """
     decoder = []
     resnet_dims = get_dims(name)                 # [64,64,128,256,512] or [64,256,512,1024,2048]
-    output_dims =  [16, 32, 64, 128, 256]        # decoder out dims 
+    output_dims =  [256, 128, 64, 32, 16]        # decoder out dims 
 
-    in_dim = resnet_dims[-1] + resnet_dims[-2]
-    for k, out_dim in enumerate(reversed(output_dims)):
-        decoder.append(decoder_block_up(in_dim, out_dim))
-        tmp = resnet_dims[-(3+k)] if 3+k < len(resnet_dims)+1 else 0
-        in_dim = out_dim + tmp
+    # in_dim = resnet_dims[-1] + resnet_dims[-2]
+    in_dim0 = resnet_dims[-1]
+    for k, out_dim in enumerate(output_dims):
+        in_dim1 = resnet_dims[-(2+k)] if 2+k <= len(resnet_dims) else 0
+        decoder.append(NNCatConv(in_dim0, in_dim1, out_dim))
+
+        in_dim0 = out_dim    # input to next layer is output of current layer
 
     return nn.ModuleList(decoder)
 
@@ -96,7 +98,7 @@ def build_decoder(name, **kwargs):
 class resnet_decoder(nn.Module):
     """ Decoder used for pretrained backbones """
 
-    def __init__(self, name, **kwargs):
+    def __init__(self, name, block=NNCatConv, params=None):
         """
         Parameters
         ----------
@@ -107,12 +109,26 @@ class resnet_decoder(nn.Module):
             block)
         """
         super().__init__()
-        self.up_stream = build_decoder(name)
+
+        self.upstream = nn.ModuleList()
+
+        resnet_dims = get_dims(name)                 # [64,64,128,256,512] or [64,256,512,1024,2048]
+        output_dims =  [256, 128, 64, 32, 16]        # decoder out dims 
+
+        if params is None: params = [{} for i in range(len(output_dims))]
+        else: assert len(output_dims) == len(params)
+
+        in_dim0 = resnet_dims[-1]
+        for k, out_dim in enumerate(output_dims):
+            in_dim1 = resnet_dims[-(2+k)] if 2+k <= len(resnet_dims) else 0
+            block_params = params[k]
+            self.upstream.append(block(in_dim0, in_dim1, out_dim, **block_params))
+            in_dim0 = out_dim    # input to next layer is output of current layer
 
     def forward(self, features):
         x = features[f'4']
-        for i in range(len(self.up_stream)):
+        for i in range(len(self.upstream)):
             f = features[f'{3-i}'] if 3-i >= 0 else None
-            x = self.up_stream[i](x, f)
+            x = self.upstream[i](x, f)
 
         return x

@@ -32,7 +32,6 @@ class UNet(nn.Module):
             is then doubled after each encoder block (e.g. 16 -> 32 -> 64 ...)
         """
         super().__init__()
-        # stem_down = False if encoder == 'vanilla' else True
 
         self.encoder = get_encoder(encoder, input_channels, **kwargs)
         self.decoder = get_decoder(encoder, **kwargs)
@@ -40,9 +39,8 @@ class UNet(nn.Module):
         self.head = nn.Conv2d(16, num_classes, kernel_size=1)
 
     def forward(self, x):
-        features = self.encoder(x)    # num features: depth+1
+        features = self.encoder(x)
         x = self.decoder(features)
-
         x = self.head(x)
 
         return x

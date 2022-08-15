@@ -1,5 +1,6 @@
-from .unet_vanilla import vanilla_encoder, vanilla_decoder
+#from .unet_vanilla import vanilla_encoder, vanilla_decoder
 # from .unet_vanilla import drop_encoder
+from .unet_generator import encoder as vanilla_encoder, decoder as vanilla_decoder
 from .resnet import resnet18_encoder, resnet34_encoder, resnet50_encoder, resnet101_encoder
 from .resnet import resnet_decoder
 from .convnext import ConvNeXt, convnext_decoder

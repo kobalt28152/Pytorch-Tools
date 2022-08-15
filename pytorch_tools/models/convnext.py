@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
-from .base import decoder_block_up
+from .base import NNCatConv
 
 class Block(nn.Module):
     r""" ConvNeXt Block. There are two equivalent implementations:
@@ -155,12 +155,15 @@ def build_decoder(name, **kwargs):
     """ Utility function to create the decoder """
     decoder = []
     encoder_dims = get_dims(name)                # len always 4
-    output_dims =  [16, 32, 64, 128, 256]        # decoder out dims 
+    output_dims =  [256, 128, 64, 32, 16]        # decoder out dims 
 
-    in_dim = encoder_dims[-1] + encoder_dims[-2]
-    for k, out_dim in enumerate(reversed(output_dims)):
-        decoder.append(decoder_block_up(in_dim, out_dim))
-        tmp = encoder_dims[-(3+k)] if 3+k < len(encoder_dims)+1 else 0
+    in_dim0 = encoder_dims[-1]
+    for k, out_dim in enumerate(output_dims):
+        in_dim1 = encoder_dims[-(2+k)] if 2+k <= len(encoder_dims) else 0
+        block_params = params[k]
+
+        decoder.append(block(in_dim0, in_dim1, out_dim, **block_params))
+
         in_dim = out_dim + tmp
 
     return nn.ModuleList(decoder)
@@ -169,7 +172,7 @@ def build_decoder(name, **kwargs):
 class convnext_decoder(nn.Module):
     """ Decoder used for pretrained backbones """
 
-    def __init__(self, name, **kwargs):
+    def __init__(self, name, block=NNCatConv, params=None):
         """
         Parameters
         ----------
@@ -180,13 +183,26 @@ class convnext_decoder(nn.Module):
             block)
         """
         super().__init__()
-        self.up_stream = build_decoder(name)
+        self.upstream = nn.ModuleList()
+
+        encoder_dims = get_dims(name)                # len always 4
+        output_dims =  [256, 128, 64, 32, 16]        # decoder out dims 
+
+        if params is None: params = [{} for i in range(len(output_dims))]
+        else: assert len(output_dims) == len(params)
+
+        in_dim0 = encoder_dims[-1]
+        for k, out_dim in enumerate(output_dims):
+            in_dim1 = encoder_dims[-(2+k)] if 2+k <= len(encoder_dims) else 0
+            block_params = params[k]
+            self.upstream.append(block(in_dim0, in_dim1, out_dim, **block_params))
+            in_dim0 = out_dim
 
     def forward(self, features):
         x = features[-1]
         N = len(features) - 2
-        for i in range(len(self.up_stream)):
+        for i in range(len(self.upstream)):
             f = features[N-i] if N-i >= 0 else None
-            x = self.up_stream[i](x, f)
+            x = self.upstream[i](x, f)
 
         return x

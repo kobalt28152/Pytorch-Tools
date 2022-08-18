@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import cv2
 
 from torch.utils.data import Dataset
@@ -59,6 +60,67 @@ def load_img_to_RAM(arr, base_dir='', to_RGB=False, flags=cv2.IMREAD_UNCHANGED, 
     if verbose: pb.close()
 
     return imgs
+
+
+def load_ImageMask_npz(arr, N, base_dir='', verbose=True):
+    """ Load tiles contained in .npz files.
+
+    Load images and masks tiles saved in .npz files. Each .npz file is
+    expected to contain two keys:
+    - 'image': 4D np.ndarray (M x H x W x C) containing the images tiles.
+    - 'mask': 4D np.ndarray (M x H x W x C') containing the masks
+
+    In other words, each .npz file contains both images and corresponding
+    masks.
+
+    NOTE: it is assumed that ALL tiles have the same shape.
+
+    Parameters
+    ----------
+    arr : list[string]
+        array containing the path to the npz files
+    N : int
+        total number of tiles in the npz files.
+    verbose : bool
+        verbosity level
+    """
+    path = arr[0]
+    with np.load(os.path.join(base_dir, path)) as data:
+        img = data['image']
+        msk = data['mask']
+
+    imgs = np.empty((N, *img.shape[1:]), dtype=img.dtype)
+    msks = np.empty((N, *msk.shape[1:]), dtype=msk.dtype)
+
+    if verbose:
+        print(f'Created arrays:\n\t{imgs.shape}, {msks.shape}')
+        print('Loading images and masks...')
+        pb = tqdm(total=len(arr))
+
+    # Fill arrays
+    dt = 0
+
+    n = img.shape[0]
+    imgs[dt:dt+n] = img
+    msks[dt:dt+n] = msk
+    dt += n
+    if verbose: pb.update()
+
+    for i in range(1, len(arr)):
+        path = arr[i]
+        with np.load(os.path.join(base_dir, path)) as data:
+            img = data['image']
+            msk = data['mask']
+        n = img.shape[0]
+        imgs[dt:dt+n] = img
+        msks[dt:dt+n] = msk
+        dt += n
+        if verbose: pb.update()
+
+    if verbose: pb.close()
+
+    # Return arrays removing unnecesary dimensions
+    return imgs.squeeze(), msks.squeeze()
 
 
 class ImageMask_Dataset_RAM(Dataset):

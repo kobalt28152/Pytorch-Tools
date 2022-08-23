@@ -45,7 +45,7 @@ def predict_fast(img, model, device, n_classes=1, preproc=None, postproc=None,
     model.eval()
     step = tile_size
 
-    if preproc is None: preproc = lambda x: to_tensor(x)
+    if preproc is None: preproc = lambda x: to_tensor(x).unsqueeze(0)
     if postproc is None: postproc = lambda x: x.squeeze(0).sigmoid()
 
     # Generate Tiles
@@ -70,7 +70,6 @@ def predict_fast(img, model, device, n_classes=1, preproc=None, postproc=None,
             x = preproc(img_tiles[j,i])
 
             # Predict mask
-            x = x.unsqueeze(0)
             x = x.to(device)
             with torch.no_grad():
                 p = model(x)
@@ -135,14 +134,14 @@ def predict_fast_batch(img, model, device, n_classes=1, preproc=None, postproc=N
 
 def predict_overlapped(img, model, device, n_classes=1, preproc=None, postproc=None,
                              tile_size=256, step=128, mode='reflect', verbose=0):
-    """ Predict full mask by tiling the image, where tiles CAN OVERLAP.
+    """ Predict full mask by tiling the input image (tiles CAN OVERLAP).
 
-    Divide 'img' into tiles of shape (tile_size x tile_size),  with
-        overlap. If required, pad the input image on the (left/right) and
-        (top/bottom):
-        - Using `model` make predictions for each tile.
-        - Where several predictions intersect take the average
-        - return the averaged prediction
+    Divide 'img' into tiles of shape (tile_size x tile_size),  with overlap
+    depending onf 'step'. If required, pad the input image on the (left/right)
+    and (top/bottom), then:
+        - Using `model` make predictions for each tiles.
+        - When several predictions intersect the average is taken.
+        - Finally, return the averaged prediction
 
     Parameters
     ----------
@@ -153,9 +152,12 @@ def predict_overlapped(img, model, device, n_classes=1, preproc=None, postproc=N
     device : torch.device
         cpu or gpu
     preproc : function
+        Preprocessing function applied to each batch of tiles. This function
+        takes a tiled images (3D np.ndarray) and returns a 4D torch.Tensors
+        ready to be input to the model; e.g. a `1 x 3 x 256 x 256` tensor.
     postproc : function
-        Preprocessing (before applying model) function and postpocessing (after
-        applying model) function
+        Postprocessing function applied right after the prediction. This
+        function takes a 4D torch.Tensor and returns a 3D torch.Tensor.
     tile_size : int
         tile size
     step : int
@@ -168,7 +170,97 @@ def predict_overlapped(img, model, device, n_classes=1, preproc=None, postproc=N
     Returns
     -------
     np.ndarray
-        full predicted mask (same size as 'img' H x W x C)
+        full predicted mask (same size as 'img')
+    """
+    model.eval()
+    if preproc is None: preproc = lambda x: to_tensor(x).unsqueeze(0)
+    if postproc is None: postproc = lambda x: x.sigmoid().squeeze(0)
+
+    # Compute tiles
+    img_tiles, pads = tile_overlapped(img, tile_size=tile_size, step=step, mode=mode)
+
+    height, width = img.shape[:2]
+    y_tiles, x_tiles = img_tiles.shape[:2]
+    
+    # Predicted mask and mask for averaging (number of times each pixel is processed)
+    msk_pred = torch.zeros((n_classes, height+np.sum(pads[0]), width+np.sum(pads[1])))
+    avg_msk = torch.zeros((height+np.sum(pads[0]), width+np.sum(pads[1])))
+
+    if verbose > 0:
+        print(f'Image divided in ({y_tiles}, {x_tiles}) tiles; processing tiles ({device}) ...')
+        if verbose > 1:
+            pbar = tqdm(total=y_tiles*x_tiles)
+
+    for j in range(y_tiles):
+        for i in range(x_tiles):
+            # Process each row of the tiled image as a batch
+            x = preproc(img_tiles[j, i])
+            x = x.to(device)
+
+            with torch.no_grad():
+                p = model(x)
+            
+            p = p.to('cpu')    # Always return prediction to CPU
+            p = postproc(p)
+
+            # Add predicted tile to full size mask and increase
+            # the number of times pixels are processed
+            (y0,y1), (x0,x1) = yx_tile_to_pos(j, i, tile_size=tile_size, step=step)
+            msk_pred[:, y0:y1, x0:x1] += p
+            avg_msk[y0:y1, x0:x1] += 1
+
+            if verbose > 1: pbar.update(1)
+
+    if verbose > 1: pbar.close()
+
+    # Return unpadded full size averaged predicted mask
+    # a / b[:,:,None] -> Broadcasting
+    return unpad_img(msk_pred/avg_msk, pads, last=False)
+
+
+def predict_overlapped_batch(img, model, device, n_classes=1, preproc=None, postproc=None,
+                             tile_size=256, step=128, mode='reflect', verbose=0):
+    """ Predict full mask by tiling the input image (tiles CAN OVERLAP)
+
+    Process the generated in batches.
+
+    Divide 'img' into tiles of shape (tile_size x tile_size),  with overlap
+    depending onf 'step'. If required, pad the input image on the (left/right)
+    and (top/bottom), then:
+        - Using `model` make predictions for each batch of tiles. A batch of
+          tiles consists of a one row of the generated tiles (a 5D array with
+          shape `cols x rows x tile_size x tile_size x C`).
+        - When several predictions intersect the average is taken.
+        - finally, return the averaged prediction
+
+    Parameters
+    ----------
+    img : np.ndarray
+        input image (H x W x C)
+    model : nn.Model
+        NN model 1 x H x W x C -> 1 x H x W x n_classes
+    device : torch.device
+        cpu or gpu
+    preproc : function
+        Preprocessing function applied to each batch of tiles. This function
+        takes a batch of images (4D np.ndarray) and returns a 4D tensors ready
+        to be input to the model.
+    postproc : function
+        Postprocessing function applied right after the prediction. This
+        function takes a 4D torch.Tensor and returns a 4D torch.Tensor.
+    tile_size : int
+        tile size
+    step : int
+        step for the tiles
+    mode : string
+        padding mode (reflect, constant)
+    verbose : int
+        verbosity level: 0 (no message), 1 (basic message)
+                            2 (basic message + tqdm)
+    Returns
+    -------
+    np.ndarray
+        full predicted mask (same size as 'img')
     """
     model.eval()
     if preproc is None: preproc = lambda x: batch_transform(x, to_tensor)

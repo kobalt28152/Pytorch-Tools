@@ -1,6 +1,6 @@
 import pydicom as dcm
 
-def read_DICOM_dir(path, rescale=True, verbose=False):
+def read_DICOM_dir(path, rescale=True, reverse=False, verbose=False):
     """ Read all DICOM files contained in a directory
 
     Parameters
@@ -29,7 +29,7 @@ def read_DICOM_dir(path, rescale=True, verbose=False):
     dcm_files = [dcm.dcmread(os.path.join(path, f)) for f in files]
 
     # Sort DICOM files according to their 'Instance Number'
-    dcm_files = sorted(dcm_files, key=lambda x: int(x.InstanceNumber))
+    dcm_files = sorted(dcm_files, key=lambda x: int(x.InstanceNumber), reverse=reverse)
 
     # Get properties from first DICOM file
     slope, intercept = dcm_files[0].RescaleSlope, dcm_files[0].RescaleIntercept

@@ -1,4 +1,7 @@
+import numpy as np
 import pydicom as dcm
+
+import os
 
 def read_DICOM_dir(path, rescale=True, reverse=False, verbose=False):
     """ Read all DICOM files contained in a directory

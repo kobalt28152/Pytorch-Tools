@@ -73,7 +73,7 @@ def paint_mask(mask, labels, cat2color, dark=True):
     labels : list
         list of labels (unique values of 'mask'); e.g. [1, 2, 3, 4]
     cat2color : dict
-        map label -> color (int -> rgb)
+        map label(category) -> color (int -> rgb)
     dark : bool
         background, either: dark (True) | light (False)
 
@@ -89,6 +89,31 @@ def paint_mask(mask, labels, cat2color, dark=True):
         canvas[mask == i] = cat2color[i]
 
     return canvas
+
+def overlay_paintedMask(img, mask, labels, cat2color):
+    """ Overlay the painted mask on top of the provided image
+
+    Parameters
+    ----------
+    img : np.ndarray
+        input image
+    mask : np.ndarray
+        single-channel labeled image; shape (H, W)
+    labels : list
+        list of labels (unique value of 'mask'); we assume that background = 0.
+    cat2color : dict
+        map label(category) -> color
+    """
+    ret = paint_mask(mask, labels, cat2color, dark=True)    # Paint mask
+
+    canvas = imgs.copy()
+    if len(canvas.shape) == 2:    # If gray scale, convert to RGB
+        canvas = cv2.cvtColor(canvas, cv2.COLOR_GRAY2RGB)
+    canvas[ret != 0] = 0.0    # Set to 0 all places where there is a label
+    canvas += ret             # Add painted labels to canvas
+    
+    return canvas
+
 
 
 def hist_cv_show_short(hist):

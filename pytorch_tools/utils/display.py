@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+import cv2
+
 def show_img_with_tiles(img, tiles, figsize, cmap='gray'):
     """ Show image next a tiled image.
 
@@ -106,7 +108,7 @@ def overlay_paintedMask(img, mask, labels, cat2color):
     """
     ret = paint_mask(mask, labels, cat2color, dark=True)    # Paint mask
 
-    canvas = imgs.copy()
+    canvas = img.copy()
     if len(canvas.shape) == 2:    # If gray scale, convert to RGB
         canvas = cv2.cvtColor(canvas, cv2.COLOR_GRAY2RGB)
     canvas[ret != 0] = 0.0    # Set to 0 all places where there is a label

@@ -62,58 +62,76 @@ def show_img_with_tiles(img, tiles, figsize, cmap='gray'):
 # viridis = cm.get_cmap('viridis', nLabels)
 # cat2color = {i: viridis(i/nLabels)[:3] for i in range(nLabels)}
 
-def paint_mask(mask, labels, cat2color, dark=True):
+def paint_mask(mask, labels, cat2color, background=0):
     """ Paint mask
 
-    Given a labeled image ('mask'), return an image where each label is mapped
-    to a different color. 'cat2color' define a map: label -> color (int -> rgb)
+    Given a mask (labeled or one-hot), return an image where each label is
+    mapped to a different color; 'cat2color' defines a map (int -> rgb)
+
+        label   -> color, or
+        channel -> color (for one-hot encoded masks)
 
     Parameters
     ----------
     mask : np.ndarray
-        single-channel integer image, shape (H, W)
+        single-channel integer image (H, W), or
+        multiple-channel one-hot encoded image (H, W, N)
     labels : list
-        list of labels (unique values of 'mask'); e.g. [1, 2, 3, 4]
-    cat2color : dict
-        map label(category) -> color (int -> rgb)
-    dark : bool
-        background, either: dark (True) | light (False)
+        list of labels to display, for labeled mask, or
+        list of channels to display, for ont-hot mask
+    cat2color : dict(int, np.ndarray)
+        map label(chennel) -> color (int -> rgb);
+        int -> np.ndarray
+    background : np.ndarray
+        background value
 
     Returns
     -------
     np.ndarray
-        colored image (H, W, 3) - np.float32 """
-    if dark:
-        canvas = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
+        colored image (H, W, 3) same dtype as cat2color dtype
+    """
+    dtype = cat2color[list(cat2color.keys())[0]].dtype
+    canvas = np.empty((*mask.shape[:2], 3), dtype=dtype)
+    canvas[:] = background
+
+    if len(mask.shape) == 2:
+        for i in labels:
+            canvas[mask == i] = cat2color[i]
     else:
-        canvas = np.ones((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
-    for i in labels:
-        canvas[mask == i] = cat2color[i]
+        for i in labels:
+            canvas[mask[...,i] != 0] = cat2color[i]
 
     return canvas
 
 def overlay_paintedMask(img, mask, labels, cat2color):
     """ Overlay the painted mask on top of the provided image
 
+    It is assumed that background color = (0, 0, 0).
+
+    Note: img.dtype should be the same as cat2color[keys].dtype.
+
     Parameters
     ----------
     img : np.ndarray
         input image
     mask : np.ndarray
+        single-channel integer image (H, W), or
+        multiple-channel one-hot encoded image (H, W, N)
         single-channel labeled image; shape (H, W)
     labels : list
-        list of labels (unique value of 'mask'); we assume that background = 0.
-    cat2color : dict
-        map label(category) -> color
+        list of labels to display, for labeled mask, or
+        list of channels to display, for ont-hot mask
+    cat2color : dict(int, np.ndarray)
+        map int -> np.ndarray.
     """
-    ret = paint_mask(mask, labels, cat2color, dark=True)    # Paint mask
+    ret = paint_mask(mask, labels, cat2color, background=0)    # Paint mask
 
     canvas = img.copy()
     if len(canvas.shape) == 2:    # If gray scale, convert to RGB
         canvas = cv2.cvtColor(canvas, cv2.COLOR_GRAY2RGB)
-    canvas[ret != 0] = 0.0    # Set to 0 all places where there is a label
-    canvas += ret             # Add painted labels to canvas
-    
+
+    # Set all places where there is a label to the corresponding color
+    canvas[ret != 0] = ret[ret != 0]
     return canvas
 
 

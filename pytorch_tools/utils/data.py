@@ -123,6 +123,62 @@ def load_ImageMask_npz(arr, N, base_dir='', verbose=True):
     return imgs.squeeze(), msks.squeeze()
 
 
+def read_npz(path, keys):
+    """ Read npz file
+
+    Parameters
+    ----------
+    path : str
+        path to npz file
+    keys : list(str)
+        list of keys for the npz file
+    """
+    with np.load(path) as data:
+        ret = tuple(data[key] for key in keys)
+    return ret
+
+
+def read_npz_list(paths, N, keys):
+    """ Read all npz files in the input list ('paths')
+
+    It is assumed that all keys have the same depth. That is,
+        data[key].shape == (N, *) for every key in keys
+
+    where '*' represents any number dimensions.
+
+    Parameters
+    ----------
+    paths : list(str)
+        list containing the paths to npz files
+    N : int
+        total number of arrays to read. Required to construct the output.
+    keys : list(str)
+        list of keys for the npz files
+    """
+    tmp = read_npz(paths[0], keys)    # Read first file to get shapes and dtypes
+    
+    # Create return tuple
+    ret = tuple(np.empty((N, *tmp[i].shape[1:]), dtype=tmp[i].dtype) for i in range(len(tmp)))
+    
+    # Start filling the output arrays
+    dt = 0    # depth counter
+
+    # Fill first array which is already loaded in memory
+    n = tmp[0].shape[0]    # Number of elements in npz (all keys have same depth)
+    for i in range(len(ret)):
+        ret[i][dt:dt+n] = tmp[i]
+    dt += n
+    
+    for i in range(1, len(paths)):
+        tmp = read_npz(paths[i], keys)
+        n = tmp[0].shape[0]
+        for i in range(len(ret)):
+            ret[i][dt:dt+n] = tmp[i]
+        dt += n
+
+    return ret
+
+
 class ImageMask_Dataset_RAM(Dataset):
     """ Dataset for (image, mask) paris
 
@@ -150,17 +206,17 @@ class ImageMask_Dataset_RAM(Dataset):
         self.imgs = imgs
         self.msks = msks
         self.transform = transform
-        
+
     def __len__(self):
         return len(self.msks)
-    
+
     def __getitem__(self, idx):
         img = self.imgs[idx]
         msk = self.msks[idx]
-        
+
         if self.transform:
             transformed = self.transform(image=img, mask=msk)
             img = transformed['image']
             msk = transformed['mask']
-            
+
         return img, msk

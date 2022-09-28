@@ -24,8 +24,8 @@ def IoU(a, b):
     torch.Tensor
         IoU score for each class; N x C or C
     """
-    inter = torch.sum(a * b, dim=(-3,-2))
-    card = torch.sum(a, dim=(-3,-2)) + torch.sum(b, dim=(-3,-2))
+    inter = torch.sum(a * b, dim=(-2,-1))
+    card = torch.sum(a, dim=(-2,-1)) + torch.sum(b, dim=(-2,-1))
 
     ret = inter / (card - inter + 1)    # + 1 to avoid division by 0
     ret[card == 0] = 1.0    # Set to 1.0, where: |a| == 0 and |b| == 0
@@ -64,6 +64,29 @@ def Dice(a, b):
 
 
 class IoU_Metric(object):
+
+    def __init__(self, num_classes, per_class=True):
+        self.num_classes = num_classes
+        self.per_class = per_class
+
+    def __call__(self, pred, y):
+        with torch.no_grad():
+            # x :                      N x C x H x W    (logits)
+            # x = softmax(x) :         N x C x H x W    (probabilities)
+            # x = argmax(x, dim=1) :   N x H x W        (labels)
+            # x = one_hot(x, C)) :     N x H x W x C    (one-hot encoded)
+            p_hot = one_hot(pred.softmax(dim=-3).argmax(dim=-3), num_classes=self.num_classes)
+            y_hot = one_hot(y, num_classes=self.num_classes)
+
+            ret = IoU(p_hot, y_hot)    # N x C
+            
+            if self.per_class: return torch.mean(ret, dim=0)    # (C,) tensor
+            else: return torch.mean(ret)    # 1 x 1 (actually Size[]; i.e. no dims)
+        
+    def __repr__(self):
+        return 'IoU_Metric()'
+
+class IoU_Metric(object):
     """ IoU metric for multi-class segmentation.
 
     For each class, compute the IoU beween corresponding elements. That is, for
@@ -84,34 +107,60 @@ class IoU_Metric(object):
     - scalar (tensor), containing the average between all clases.
     """
 
-    def __init__(self, num_classes, per_class=True):
+    def __init__(self, multi_class=True, hard=True, per_class=True, num_classes=None, threshold=None):
         """
         Parameters
         ----------
-        num_classes : int
-            number of classes
+        multi_class : bool
+            If True, multi-class problem expected (single output class per pixel)
+            if False, multi-label problem expected (multiple output classes per pixel)
+        hard : bool
+            if True, normalize predictions to {0, 1} (or {False, True})
+            if False, use floating point values [0, 1].
         per_class : bool
-            compute IoU per class (True -> return vector; False -> Scalar)
+            if True, compute IoU per class (return vector)
+            if False, compute the total average (return  Scalar)
+        num_classes : int
+            number of classes. Only used when multi_class == True.
+        threshold : float or torch.Tensor
+            threshold used when hard == True
         """
-        self.num_classes = num_classes
+        self.multi_class = multi_class
+        self.hard = hard
         self.per_class = per_class
+        
+        self.num_classes = num_classes    # used when multi_class == False :
+        self.threshold = threshold        # used when hard == True : pred > threshold
+        
+        if self.multi_class and num_classes is None:
+            raise ValueError('For multi-class, num_classes must be provided')
+        if self.hard and threshold is None:
+            raise ValueError('If hard == True, threshold must be provided.')
 
     def __call__(self, pred, y):
         """
         Parameters
         ----------
         pred : torch.Tensor
-            logits (predicted values): N x num_classes x H x W (float32)
+            N x num_classes x H x W (float32)
         y : torch.Tensor
-            target (labels): N x H x W (long)
+            N x H x W (long) for multi-class problem
+            N x C x H x W (float32) for multi-label problem
         """
         with torch.no_grad():
-            # x :                      N x C x H x W    (logits)
-            # x = softmax(x) :         N x C x H x W    (probabilities)
-            # x = argmax(x, dim=1) :   N x H x W        (labels)
-            # x = one_hot(x, C)) :     N x H x W x C    (one-hot encoded)
-            p_hot = one_hot(pred.softmax(dim=-3).argmax(dim=-3), num_classes=self.num_classes)
-            y_hot = one_hot(y, num_classes=self.num_classes)
+            if self.multi_class:
+                if self.hard:
+                    p_hot = one_hot(pred.softmax(dim=-3).argmax(dim=-3), num_classes=self.num_classes).permute(0, 3, 1, 2)
+                else:
+                    p_hot = pred.softmax(dim=-3)
+                
+                y_hot = one_hot(y, num_classes=self.num_classes).permute(0, 3, 1, 2)
+            else:
+                if self.hard:
+                    p_hot = pred.sigmoid() > self.threshold
+                else:
+                    p_hot = pred.sigmoid()
+                y_hot = y
 
             ret = IoU(p_hot, y_hot)    # N x C
             
@@ -119,7 +168,8 @@ class IoU_Metric(object):
             else: return torch.mean(ret)    # 1 x 1 (actually Size[]; i.e. no dims)
         
     def __repr__(self):
-        return 'IoU_Metric()'
+        return f'IoU_Metric(mc={self.multi_class}, hard={self.hard}, pc={self.per_class})'
+
 
 
 class Dice_Metric(object):

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.nn.functional import one_hot
+from torch.nn.functional import one_hot, logsigmoid
 
 from .functional import IoU, Dice
 

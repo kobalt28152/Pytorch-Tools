@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 
+import cv2
+
 def resize_keepAspectRatio(img, target=512, value=0, center=True, interpolation=cv2.INTER_LINEAR):
     """ Resize image to (target, target) while keeping aspect ratio
 

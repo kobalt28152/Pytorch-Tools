@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.nn.functional import logsigmoid
+from torch.nn.functional import logsigmoid, binary_cross_entropy_with_logits
 
 from .functional import IoU, Dice
 
@@ -125,3 +125,28 @@ class MCCLoss(nn.Module):
 
         mcc = torch.div(numerator.sum(), denominator.sum())
         return 1.0 - mcc
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=0, reduction='mean'):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        
+    def forward(self, pred, y):
+        with torch.no_grad():
+            p = torch.sigmoid(pred)
+        pt = p*y + (1-p)*(1-y)
+
+        bce_loss = binary_cross_entropy_with_logits(pred, y, reduction='none')
+        loss = bce_loss * ((1-pt)**self.gamma)
+
+        if self.alpha:
+            at = self.alpha*y + (1-self.alpha)*(1-y)
+            loss = at * loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+
+        return loss   

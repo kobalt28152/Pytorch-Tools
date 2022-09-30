@@ -128,12 +128,36 @@ class MCCLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
+    """ Focal Loss (https://arxiv.org/abs/1708.02002)
+
+    Compute focal loss according to:
+
+        FL(pt) = -at (1 - pt)^g * log(pt),    where
+
+        pt =   p   if y = 1   at =   a   if y = 1
+             1 - p if y = 0        1 - a if y = 0
+
+    - a (alpha) is weighting factor for class imbalance
+    - g (gamma) smoothly adjusts the rate at which easy examples are downweighted; i.e.
+      if as pt -> 1, (1 - pt)^g -> 0 faster for greater gamma.
+    """
     def __init__(self, alpha=None, gamma=0, reduction='mean'):
+        """
+        Parameters
+        ----------
+        alpha : float
+            weighting factor
+        gamma : int or float
+            focusing parameter; gamma >= 0.
+        reduction : str
+            if 'mean' return loss.mean() (Scalar), otherwise returns directly
+            loss (tensor - (N,C,H,W)).
+        """
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
-        
+
     def forward(self, pred, y):
         with torch.no_grad():
             p = torch.sigmoid(pred)
@@ -149,4 +173,4 @@ class FocalLoss(nn.Module):
         if self.reduction == 'mean':
             return loss.mean()
 
-        return loss   
+        return loss

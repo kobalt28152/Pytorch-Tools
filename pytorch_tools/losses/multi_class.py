@@ -86,3 +86,44 @@ class Dice_Loss(nn.Module):
         dice = - torch.log(dice.clamp_min(self.eps))    # clamp to eps to avoid log(0)
 
         return dice.mean()
+
+
+class MCCLoss(nn.Module):
+    """ Matthews Correlation Coefficient (MCC) Loss for image segmentation.
+
+    MCC adapted to multi-label segmentation; i.e., each pixel may belong to
+    more than one class. This is the same as binary segmentation but each
+    channel is treated independently. For instance, if the prediction and
+    target are of shape (N, C, H, W), then MCC is computed indepentendly for
+    each of the C classes; tp, tn, fp, fp will all be of shape (N, C).
+
+    Reference: https://github.com/kakumarabhishek/MCC-Loss """
+
+    def __init__(self, eps: float = 1e-5):
+        """
+        Parameters
+        ----------
+        eps : float
+            Small epsilon to handle situations where all the samples in the
+            dataset belong to one class.
+        """
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_sig = logsigmoid(pred).exp()
+
+        # sum over the last two dimensions (H, W)
+        # => (N, C, H, W) --> (N, C)
+        tp = torch.sum(pred_sig * target, dim=(-2,-1)) + self.eps
+        tn = torch.sum((1 - pred_sig) * (1 - target), dim=(-2,-1)) + self.eps
+        fp = torch.sum(pred_sig * (1 - target), dim=(-2,-1)) + self.eps
+        fn = torch.sum((1 - pred_sig) * target, dim=(-2,-1)) + self.eps
+
+        numerator = (tp * tn) - (fp * fn)
+        denominator = torch.sqrt((tp+fp) * (tp+fn) * (tn+fp) * (tn+fn))
+
+        mcc = numerator / denominator
+        
+        mcc_loss = 1 - mcc
+        return mcc_loss.mean()

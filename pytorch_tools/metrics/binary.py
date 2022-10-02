@@ -53,6 +53,38 @@ def Dice(a, b):
 
 # ========== Batch metrics ========
 
+class Accuracy(nn.Module):
+    """ Accuracy
+
+    Compute the accuracy score between two tensors with shape (*); i.e.,
+    tensors can be of arbitrary shape. Accuracy score is computed as:
+
+        acc = sum(prediction == target) / num_elements
+
+    That is, when prediction and target are equal, set to 1 (True). Then
+    count the number of correctly predicted values and simply divide by
+    the total number of elements.
+    """
+    def __init__(self, threshold, logits=True):
+        """
+        Parameters
+        ----------
+        threshold : float
+            threshold value for prediction; pred > threshold
+        logits : bool
+            if true, compute prediction.sigmoid() to get actual probabilities
+            else, use directly prediction
+        """
+        super().__init__()
+        self.threshold = threshold
+        self.logits = logits
+
+    def forward(self, pred, y):
+        with torch.no_grad():
+            pred = pred.sigmoid() > self.threshold if self.logits else pred > self.threshold
+            return torch.sum(pred == y.type(torch.bool))/y.numel()
+
+
 class IoU_Metric(object):
     """ IoU metric for binary segmentation.
 

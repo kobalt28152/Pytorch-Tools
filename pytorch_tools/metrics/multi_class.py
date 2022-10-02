@@ -63,6 +63,52 @@ def Dice(a, b):
     return ret
 
 
+class Accuracy(nn.Module):
+    """ Accuracy
+
+    Compute the accuracy score for each class between two tensors with shape
+    (*,C,*); i.e., a batch of tensors with C clases plus arbitrary shape.
+    Accuracy score is computed as:
+
+        acc = sum(prediction == target, dim=(2,3,...)) / num_elements
+        where,
+        num_elems = number of elements in dimensions (2,3,...)
+
+    Then, the mean is taken for all other dimenions. That is, an accuracy score
+    is predicted for each class independently.
+    """
+    def __init__(self, threshold, C=1, logits=True):
+        """
+        Parameters
+        ----------
+        threshold : float or torch.Tensor
+            threshold value for prediction; prediction > threshold.
+        C : int
+            position of C (class dimension) in the input tensor; e.g. for
+            (N,C,H,W), C=1; for (C, H, W), C=0; etc.
+        logits : bool
+            if true, compute prediction.sigmoid() to get actual probabilities
+            else, use directly prediction
+        """
+        super().__init__()
+        self.threshold = threshold
+        self.logits = logits
+        self.C = C
+        
+    def forward(self, pred, y):
+        with torch.no_grad():
+            dim = tuple(i for i in range(self.C+1,y.dim()))    # sum along dim=(2,3,...)
+            num_elems = y.shape[self.C+1:].numel()             # number of elements in dim=(2,3,...)
+
+            pred = pred.sigmoid() > self.threshold if self.logits else pred > self.threshold
+            acc = torch.sum(pred == y.type(torch.bool), dim=dim)/num_elems
+            
+            # for shapes: (*, C, *); i.e. mean along all other dimensions
+            if self.C != 0:
+                dim = tuple(i for i in range(0, self.C))
+                return torch.mean(acc, dim=dim)
+            return acc    # for shapes: (C, *)
+
 class IoU_Metric(object):
 
     def __init__(self, num_classes, per_class=True):

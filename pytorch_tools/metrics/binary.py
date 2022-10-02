@@ -53,7 +53,7 @@ def Dice(a, b):
 
 # ========== Batch metrics ========
 
-class Accuracy(nn.Module):
+class Accuracy(object):
     """ Accuracy
 
     Compute the accuracy score between two tensors with shape (*); i.e.,
@@ -75,11 +75,10 @@ class Accuracy(nn.Module):
             if true, compute prediction.sigmoid() to get actual probabilities
             else, use directly prediction
         """
-        super().__init__()
         self.threshold = threshold
         self.logits = logits
 
-    def forward(self, pred, y):
+    def __call__(self, pred, y):
         with torch.no_grad():
             pred = pred.sigmoid() > self.threshold if self.logits else pred > self.threshold
             return torch.sum(pred == y.type(torch.bool))/y.numel()

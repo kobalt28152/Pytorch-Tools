@@ -63,7 +63,7 @@ def Dice(a, b):
     return ret
 
 
-class Accuracy(nn.Module):
+class Accuracy(object):
     """ Accuracy
 
     Compute the accuracy score for each class between two tensors with shape
@@ -90,12 +90,11 @@ class Accuracy(nn.Module):
             if true, compute prediction.sigmoid() to get actual probabilities
             else, use directly prediction
         """
-        super().__init__()
         self.threshold = threshold
         self.logits = logits
         self.C = C
-        
-    def forward(self, pred, y):
+
+    def __call__(self, pred, y):
         with torch.no_grad():
             dim = tuple(i for i in range(self.C+1,y.dim()))    # sum along dim=(2,3,...)
             num_elems = y.shape[self.C+1:].numel()             # number of elements in dim=(2,3,...)

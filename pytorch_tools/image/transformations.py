@@ -41,7 +41,10 @@ def resize_keepAspectRatio(img, target=512, value=0, center=True, interpolation=
 
     tmp = cv2.resize(img, (w,h), interpolation=interpolation)
 
-    ret = value * np.ones((target, target), dtype=img.dtype)
+    if img.ndim == 3:
+        ret = value * np.ones((target, target, img.shape[2]), dtype=img.dtype)
+    else:
+        ret = value * np.ones((target, target), dtype=img.dtype)
 
     if center:
         pos_y = int(max(target - h, 0)/2)

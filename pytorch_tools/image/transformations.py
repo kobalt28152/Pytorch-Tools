@@ -84,11 +84,11 @@ def onehot_to_labeled(x, hwc=True):
         n = x.size(-3)
         return torch.sum(x * torch.arange(1, n+1).reshape(n, 1, 1), dim=-3)
 
-def colapse_multiLabeled(x, thr, logits=True):
+def collapse_multiLabeled(x, thr, logits=True):
     """ Colapse multi-labeled to multi-class
 
-    Given a multi-labeled tensor (C, H, W), compute the class for each pixel as
-    follows:
+    Given a multi-labeled tensor (C, H, W) or (N,C,H,W), compute the class for
+    each pixel as follows:
     - Threshold each class using 'thr'
     - For each pixel, where all classes are False, set the pixel as background.
     - Set each pixel to the class with the highest probability.

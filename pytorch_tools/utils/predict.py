@@ -110,3 +110,46 @@ def batch_transform(batch, transform):
         x[i] = transform(batch[i])
     
     return x
+
+
+def segmentation_multiclass(input, model, device, N, preproc, postproc):
+    """ Segementation Multi-Class (1 class per pixel)
+
+    Segment a batch of images given by the (D,*,H,W) input tensor using the
+    provided model. Since this is a multi-class problem and each pixel has only
+    one category, the output is always a (D,H,W) index tensor (int64).
+
+    Parameters
+    ----------
+    input : np.ndarray or torch.Tensor
+        input batch of images with shape (D, *, H, W)
+    model : nn.Module
+        segmentation network; (N, C, H, W) -> (N, num_classes, H, W)
+    device : torch.device
+        device
+    N : int
+        batch size
+    preproc : function
+        pre-processing function
+    postproc : function
+        post-processing function
+
+    Returns
+    -------
+    torch.Tensor
+        segmented images with shape (D, H, W)
+    """
+    # input:  (D,*,H,W) - float32
+    # output: (D,H,W)   - int64 (index tensor)
+    input = preproc(input)     # Pre-process whole input batch
+    output = torch.empty((input.size(0),input.size(2),input.size(3)), dtype=torch.int64)
+
+    niter = int(np.ceil(input.size(0) / N))    # number of iterations (batch / batch_size)
+
+    for i in range(niter):
+        with torch.no_grad():
+            x = input[N*i:N*(i+1)].to(device)    # Select batch and send to device
+            y = model(x)                         # (N,num_classes,H,W)
+            output[N*i:N*(i+1)] = postproc(y)    # Post-process and save in output
+
+    return output

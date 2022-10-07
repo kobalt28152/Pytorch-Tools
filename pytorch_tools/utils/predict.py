@@ -141,8 +141,8 @@ def segmentation_multiclass(input, model, device, N, preproc, postproc):
     """
     # input:  (D,*,H,W) - float32
     # output: (D,H,W)   - int64 (index tensor)
+    output = torch.empty((input.shape[0],input.shape[-2],input.shape[-1]), dtype=torch.int64)
     input = preproc(input)     # Pre-process whole input batch
-    output = torch.empty((input.size(0),input.size(2),input.size(3)), dtype=torch.int64)
 
     niter = int(np.ceil(input.size(0) / N))    # number of iterations (batch / batch_size)
 

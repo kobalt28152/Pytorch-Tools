@@ -115,3 +115,63 @@ def collapse_multiLabeled(x, thr, logits=True):
     labels[background] = 0          # N x H x W
     
     return labels
+
+def increase_equal(a, d):
+    """ Increase a range on both sides.
+
+    Increase a range on both sides by an equal amount; or almost equal if
+    distance 'd' is not even. That is, suppose that the distance is even, then
+        
+        [a0, a1) -> [a0+d/2, a1+d/2)
+
+    Since this function is intended for ranges in images, a0 cannot be negative.
+    Parameters
+    ----------
+    a : tuple(2)
+        range [a0, a1)
+    d : int
+        distance to increase
+    Returns
+    -------
+    tuple(2)
+        new range [a0+d/2, a1+d/2)
+    """
+    a0, a1 = a
+    td = a1-a0+d    # Total distance
+    a0 = max(a0 - d//2, 0)
+    a1 = a0 + td
+    return (a0, a1)
+
+def match_range_lengths(a, b):
+    """ Match two range lengths.
+
+    Match the length of two ranges to the largest length by adding an equal
+    quantity on both sides of the smalles range. For example, let
+
+        a: [20, 30), b: [40, 60), 
+        => len(a)=10, len(b)=20; so max(len(a), len(b)) = 20
+        => must add 20 - len(a) = 10 on both sides of a to match both ranges
+        => new ranges are:
+        a: [15, 35), b: [40, 60)
+
+    Parameters
+    ----------
+    a : tuple(2)
+        first range [a0, a1)
+    b : tuple(2)
+        second range [b0, b1)
+
+    Returns
+    -------
+    tuple(2)
+        new first range
+    tuple(2)
+        new second range
+    """
+    len_a = a[1]-a[0]
+    len_b = b[1]-b[0]
+    r = max(len_a, len_b)
+    a = increase_equal(a, r-len_a)    # For either (a,b), r-len_{a|b} will be
+    b = increase_equal(b, r-len_b)    # zero and won't be modified.
+
+    return a, b

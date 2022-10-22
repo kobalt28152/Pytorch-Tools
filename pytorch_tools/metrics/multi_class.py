@@ -99,6 +99,11 @@ class Accuracy(object):
             dim = tuple(i for i in range(self.C+1,y.dim()))    # sum along dim=(2,3,...)
             num_elems = y.shape[self.C+1:].numel()             # number of elements in dim=(2,3,...)
 
+            if dim == ():    # Handle the case: (N, C) by adding one dimension -> (N,C,1)
+                pred = pred.unsqueeze(2)
+                y = y.unsqueeze(2)
+                dim = (2,)
+
             pred = pred.sigmoid() > self.threshold if self.logits else pred > self.threshold
             acc = torch.sum(pred == y.type(torch.bool), dim=dim)/num_elems
             

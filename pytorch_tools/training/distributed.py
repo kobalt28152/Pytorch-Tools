@@ -34,7 +34,7 @@ class Trainer:
 
     def __init__(self, model, loss_fn, optimizer, dl_training, rank, world_size,
                  scheduler=None, dl_validate=None, metrics=None, metrics_cmp=None,
-                 checkpoint='', save_every=10, print_every=2):
+                 checkpoint='checkpoint.pt', save_every=10, print_every=2):
         """
         Parameters
         ----------
@@ -261,7 +261,8 @@ class Trainer:
         init = self.last_epoch+1    # continue after the last trained epoch
         end = init + steps          # train for 'steps' epochs
         for epoch in range(init, end):
-            print(f"[GPU{self.rank}] Epoch {epoch} | Steps: {len(self.dl_training)}\n", end='')
+            b_sz = len(next(iter(self.dl_training))[0])
+            print(f"[GPU{self.rank}] Epoch {epoch} |  Batchsize: {b_sz} | Steps: {len(self.dl_training)}\n", end='')
 
             self._step()
             self.last_epoch += 1    # Update lase_epoch after each step

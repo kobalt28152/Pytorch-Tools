@@ -183,7 +183,7 @@ class Trainer:
 
             self.optimizer.zero_grad()      # Backward pass
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
 
             # Loss and Metrics
             train_loss.update(loss.detach().cpu(), x.size(0))    # Save loss

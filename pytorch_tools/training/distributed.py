@@ -198,13 +198,15 @@ class Trainer:
 
         if self.rank == 0: print()
 
-        # Gather loss and metrics from all processes and print final result
-        # using torch.distributed.gather(tensor, gather_list=None, dst=0)
-        # for key in meters.keys():
-        # ...
-        # gather_list = [torch.empty_like(train_loss.sum) for i in range(self.world_size)] if self.rank == 0 else None
-        # torch.distributed.gather(train_loss.sum, gather_list, dst=0)
-        return train_loss, meters
+        print(f'loss ({self.rank}): {train_loss.sum}, {train_loss.count}\n', end='')
+
+        # Reduce loss and metrics from all processes. 
+        loss_avg = _reduce_meter(train_loss)
+
+        if self.rank == 0:
+            print(f'avg loss: {loss_avg}')
+
+        return loss_avg, meters
 
     def _validation(self):
         n_batches = len(self.dl_validate)
@@ -232,6 +234,26 @@ class Trainer:
 
         return meters
 
+    def _reduce_meter(self, meter):
+        # An AverageMeter has two members: sum and count, that must be reduced:
+        #     m1 -> sum = a1+a2+...+an; count = n
+        #     m2 -> sum = b1+b2+...+bm; count = m
+        # reduce to:
+        #    sum = a1+a2+...+an + b1+b2+...+bn; count = n + m
+        # torch.distributed.reduce(tensor, dst, op=<ReduceOp.SUM: 0>, group=None, async_op=False)
+        tensor = torch.empty(meter.sum.size(0)+1, device='cpu')
+        tensor[:-1] = meter.sum[:]
+        tensor[-1] = meter.count
+        tensor = tensor.to(self.rank)
+        torch.distributed.reduce(tensor, dst=0, op=torch.distributed.ReduceOp.SUM)
+        tensor.to('cpu')
+
+        # Return average
+        # NOTE: only rank 0 returns the total average
+        return tensor[:-1]/tensor[-1]
+
+
+
     def _fill_hist(self, meter, hist):
         for key in meter.keys():
             hist[key].append(meter[key].avg)
@@ -240,11 +262,11 @@ class Trainer:
         # One training step consists of:
         # 1. Train; 2. Validate; 3. Save loss and metrics
         # Train for one epoch
-        tr_loss, tr_met = self._train()
+        loss_avg, tr_met = self._train()
 
         # Only rank 0 process saves the loss/metric history
         if self.rank == 0:
-            print('Saving training loss/metric')
+            print(f'Saving training loss/metric: {loss_avg}')
             # self.hist_loss.append(tr_loss.avg)
             # self._fill_hist(tr_met, self.hist_train)
 

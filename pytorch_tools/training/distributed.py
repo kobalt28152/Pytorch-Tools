@@ -241,10 +241,11 @@ class Trainer:
         # reduce to:
         #    sum = a1+a2+...+an + b1+b2+...+bn; count = n + m
         # torch.distributed.reduce(tensor, dst, op=<ReduceOp.SUM: 0>, group=None, async_op=False)
-        tensor = torch.empty(meter.sum.size(0)+1, device='cpu')
-        tensor[:-1] = meter.sum[:]
-        tensor[-1] = meter.count
-        tensor = tensor.to(self.rank)
+        # tensor = torch.empty(meter.sum.size(0)+1, device='cpu')
+        # tensor[:-1] = meter.sum[:]
+        # tensor[-1] = meter.count
+        # tensor = tensor.to(self.rank)
+        tensor = torch.hstack([meter.sum, torch.tensor(meter.count)], device=self.rank)
         torch.distributed.reduce(tensor, dst=0, op=torch.distributed.ReduceOp.SUM)
         tensor.to('cpu')
 

@@ -196,12 +196,12 @@ class Trainer:
                 s = _message(meters)
                 print(f'\r({self.rank}) Train: {k+1:5}/{n_batches}, Loss: {train_loss.avg:.5f}, Metrics: {s}', end='', flush=True)
 
-        if self.rank == 0: print()
+        if self.rank == 0: print('\n', end='')
 
         print(f'loss ({self.rank}): {train_loss.sum}, {train_loss.count}\n', end='')
 
         # Reduce loss and metrics from all processes. 
-        loss_avg = _reduce_meter(train_loss)
+        loss_avg = self._reduce_meter(train_loss)
 
         if self.rank == 0:
             print(f'avg loss: {loss_avg}')

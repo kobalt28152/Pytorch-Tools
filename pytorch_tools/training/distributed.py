@@ -245,7 +245,7 @@ class Trainer:
         # tensor[:-1] = meter.sum[:]
         # tensor[-1] = meter.count
         # tensor = tensor.to(self.rank)
-        tensor = torch.hstack([meter.sum, torch.tensor(meter.count)], device=self.rank)
+        tensor = torch.hstack([meter.sum, torch.tensor(meter.count)]).to(self.rank)
         torch.distributed.reduce(tensor, dst=0, op=torch.distributed.ReduceOp.SUM)
         tensor.to('cpu')
 

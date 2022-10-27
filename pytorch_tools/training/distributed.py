@@ -187,7 +187,7 @@ class Trainer:
         # Reduce loss
         loss_avg = self._reduce_meter(train_loss)
         # Reduce metrics
-        meters_avg = [key: self._reduce_meter(meters[key]) for key in meters.keys()]
+        meters_avg = {key: self._reduce_meter(meters[key]) for key in meters.keys()}
 
         if self.rank == 0:
             s = self._message(meters_avg)

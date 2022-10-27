@@ -209,7 +209,7 @@ class Trainer:
             y = y.to(self.rank)
 
             with torch.no_grad():
-                pred = model(x)
+                pred = self.model(x)
 
             # For each metric update the corresponding meter
             for key, metric in self.metrics.items():

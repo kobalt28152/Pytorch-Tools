@@ -88,6 +88,8 @@ class Trainer:
             else:
                 self.metrics_best = None
 
+            print(self.metrics_best)
+
         self.last_epoch = -1    # Last completed epoch; -1 -> not yet trained
         self.save_every = save_every
         self.print_every = print_every
@@ -323,7 +325,7 @@ class Trainer:
             # score.
             if self.rank==0 and (self.dl_validate and self.metrics_cmp):
                 print(self.metrics_cmp)
-                print(self.metrics_cmp)
+                print(self.metrics_best)
                 self._validate_scores()
         
         # Process 0: save a checkpoint after finishing training

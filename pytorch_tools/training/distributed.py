@@ -20,7 +20,7 @@ class Trainer:
     """
 
     def __init__(self, model, loss_fn, optimizer, dl_training, rank, world_size,
-                 scheduler=None, dl_validate=None, metrics=None, metrics_cmp=None,
+                 mixed=False, scheduler=None, dl_validate=None, metrics=None, metrics_cmp=None,
                  checkpoint='checkpoint.pt', save_every=10, print_every=2):
         """
         Parameters
@@ -35,6 +35,10 @@ class Trainer:
             dataloader for training data
         rank : int
             gpu/process identifier.
+        world_size : int
+            total number of processes
+        mixed : bool
+            if True, train/validate using AMP (Automatic Mixed Precision)
         scheduler : torch.optim.lr_scheduler
             (optional) scheduler to adjust the learning rate
         dl_validate : torch.utils.data.DataLoader
@@ -63,6 +67,7 @@ class Trainer:
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.mixed = mixed
 
         self.dl_training = dl_training    # Dataloaders for training and validation
         self.dl_validate = dl_validate
@@ -88,8 +93,6 @@ class Trainer:
             else:
                 self.metrics_best = None
 
-            print(self.metrics_best)
-
         self.last_epoch = -1    # Last completed epoch; -1 -> not yet trained
         self.save_every = save_every
         self.print_every = print_every
@@ -100,7 +103,7 @@ class Trainer:
         if os.path.exists(checkpoint):
             self._load_checkpoint(checkpoint)
         else:
-            print(f'({rank}): No checkpoint found. Starting from scratch')
+            print(f'({rank}): No checkpoint found. Starting from scratch\n', end='')
 
         # Wrap model in DDP:
         # DDP broadcast state_dict() from rank 0 process to all other processes.
@@ -110,7 +113,7 @@ class Trainer:
     def _load_checkpoint(self, path):
         # NOTE:
         # Loading a checkpoint must be done BEFORE wrapping model in DDP
-        print(f'({self.rank}): Loading checkpoint: {path}')
+        print(f'({self.rank}): Loading checkpoint: {path}\n', end='')
 
         # Make sure that tensors are loaded to the correct device
         loc = f'cuda:{self.rank}'
@@ -125,7 +128,7 @@ class Trainer:
         else:
             self.scheduler = None
 
-        # History only for rank 0 process
+        # Process 0 : History only for rank 0 process
         if self.rank == 0:
             # History is stored in CPU
             checkpoint = torch.load(path, map_location='cpu')
@@ -139,7 +142,7 @@ class Trainer:
         # NOTE:
         # At this point model has be wrapped by DDP. Hence, we call
         # model.module.state_dict()
-        print(f'({self.rank}): Saving checkpoint: {path}')
+        print(f'({self.rank}): Saving checkpoint: {path}\n', end='')
 
         torch.save({
             'last_epoch': self.last_epoch,
@@ -167,10 +170,10 @@ class Trainer:
             x = x.to(self.rank)
             y = y.to(self.rank)
 
-            pred = self.model(x)            # Forward pass
+            pred = self.model(x)            # (Forward pass)
             loss = self.loss_fn(pred, y)    # loss
 
-            self.optimizer.zero_grad()      # Backward pass
+            self.optimizer.zero_grad()      # (Backward pass)
             loss.backward()
             self.optimizer.step()
 
@@ -179,7 +182,7 @@ class Trainer:
 
             # For each metric update the corresponding meter
             for key, metric in self.metrics.items():
-                meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
+                meters[key].update(metric(pred.detach(), y).cpu(), x.size(0))
 
             # Process 0: Print every 'print_every' steps and in the last iteration
             if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
@@ -215,7 +218,7 @@ class Trainer:
 
             # For each metric update the corresponding meter
             for key, metric in self.metrics.items():
-                meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
+                meters[key].update(metric(pred.detach(), y).cpu(), x.size(0))
 
             # Process 0: Print only every k steps and in the last iteration
             if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
@@ -231,6 +234,101 @@ class Trainer:
             print(f'\nTotal | Metrics: {s}\n', end='')
 
         return meters_avg
+
+    def _train_mixed(self):
+        n_batches = len(self.dl_training)
+        train_loss = AverageMeter()
+        meters = {key: AverageMeter(key) for key in self.metrics.keys()}
+
+        # If the forward pass for a particular op has float16 inputs, the
+        # backward pass for that op will produce float16 gradients. Gradient
+        # values with small magnitudes may underflow and the update for the
+        # corresponding parameters will be lost.
+        # Gradient scaling” multiplies the network’s loss(es) by a scale factor
+        # and invokes a backward pass on the scaled loss(es).
+        scaler = torch.cuda.amp.GradScaler()
+
+        self.model.module.train()
+        self.dl_training.sampler.set_epoch(self.last_epoch+1)
+        for k, (x, y) in enumerate(self.dl_training):
+            x = x.to(self.rank)
+            y = y.to(self.rank)
+
+            # Run the forward pass with autocasting.
+            with torch.cuda.amp.autocast():
+                pred = self.model(x)            # (Forward pass)
+                loss = self.loss_fn(pred, y)    # loss
+
+            self.optimizer.zero_grad()      # (Backward pass)
+
+            # Scales loss: Call backward() on a scaled loss to create scaled
+            # gradients.
+            scaler.scale(loss).backward()
+            # Each gradient should be unscaled before the optimizer updates the
+            # parameters, so the scale factor does not interfere with the
+            # learning rate. Thus scaler.step performs the following two
+            # operations: 1) unscale gradients 2) optimizer.step()
+            scaler.step(self.optimizer)
+
+            # Update the scale for next iteration.
+            scaler.update()
+
+            # Loss and Metrics
+            train_loss.update(loss.detach().float().cpu(), x.size(0))    # Update loss meter
+
+            # For each metric update the corresponding meter
+            for key, metric in self.metrics.items():
+                meters[key].update(metric(pred.detach().float(), y).cpu(), x.size(0))
+
+            # Process 0: Print every 'print_every' steps and in the last iteration
+            if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
+                s = self._message(meters)
+                print(f'\r({self.rank}) Train: {k+1:5}/{n_batches}, Loss: {train_loss.avg:.5f}, Metrics: {s}', end='', flush=True)
+
+        # Reduce loss
+        loss_avg = self._reduce_meter(train_loss)
+        # Reduce metrics
+        meters_avg = {key: self._reduce_meter(meters[key]) for key in meters.keys()}
+
+        # Process 0: print reduced loss and metrics
+        if self.rank == 0:
+            s = self._message(meters_avg)
+            print(f'\nTotal | loss: {loss_avg}, Metrics: {s}\n', end='')
+
+        return loss_avg, meters_avg
+    
+    def _validation_mixed(self):
+        n_batches = len(self.dl_validate)
+        meters = {key: AverageMeter(key) for key in self.metrics.keys()}
+
+        self.model.module.eval()
+
+        for k, (x, y) in enumerate(self.dl_validate):
+            x = x.to(self.rank)
+            y = y.to(self.rank)
+
+            with torch.no_grad(), torch.cuda.amp.autocast():
+                    pred = self.model(x)
+
+            # For each metric update the corresponding meter
+            for key, metric in self.metrics.items():
+                meters[key].update(metric(pred.detach().float(), y).cpu(), x.size(0))
+
+            # Process 0: Print only every k steps and in the last iteration
+            if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
+                s = self._message(meters)
+                print(f'\r({self.rank}) Validate: {k+1:5}/{n_batches}, Metrics: {s}', end='', flush=True)
+
+        # Reduce metrics
+        meters_avg = {key: self._reduce_meter(meters[key]) for key in meters.keys()}
+
+        # Process 0: print reduced metrics
+        if self.rank == 0:
+            s = self._message(meters_avg)
+            print(f'\nTotal | Metrics: {s}\n', end='')
+
+        return meters_avg
+
 
     def _reduce_meter(self, meter):
         # An AverageMeter has two members: sum and count, that must be reduced:
@@ -272,7 +370,10 @@ class Trainer:
         # One training step consists of:
         # 1. Train; 2. Validate; 3. Save loss and metrics
         # Train for one epoch
-        loss_avg, met_tr_avg = self._train()
+        if self.mixed:
+            loss_avg, met_tr_avg = self._train_mixed()
+        else:
+            loss_avg, met_tr_avg = self._train()
 
         # Process 0: save the training loss/metric scores
         if self.rank == 0:
@@ -281,7 +382,10 @@ class Trainer:
 
         # Validate if validation set provided
         if self.dl_validate:
-            met_val_avg = self._validation()
+            if self.mixed:
+                met_val_avg = self._validation_mixed()
+            else:
+                met_val_avg = self._validation()
 
             # Process 0: save the validation scores
             if self.rank == 0:
@@ -311,7 +415,8 @@ class Trainer:
         end = init + steps          # train for 'steps' epochs
         for epoch in range(init, end):
             # b_sz = len(next(iter(self.dl_training))[0])
-            print(f"[GPU{self.rank}] Epoch {epoch} |  Steps: {len(self.dl_training)}\n", end='')
+            if self.rank == 0:
+                print(f"({self.rank}): Epoch {epoch} | Steps {len(self.dl_training)}\n", end='')
 
             self._step()
             self.last_epoch += 1    # Update lase_epoch after each step
@@ -324,8 +429,6 @@ class Trainer:
             # provided check validation scores and save the model with the best
             # score.
             if self.rank==0 and (self.dl_validate and self.metrics_cmp):
-                print(self.metrics_cmp)
-                print(self.metrics_best)
                 self._validate_scores()
         
         # Process 0: save a checkpoint after finishing training

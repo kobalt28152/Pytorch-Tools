@@ -11,19 +11,6 @@ import os
 
 from ..metrics.meter import AverageMeter
 
-def _message(meters):
-    """ Build message for each meter in meters. """
-    msgs = []
-    for key, meter in meters.items():
-        tmp = meter.avg
-        if tmp.size() == ():    # No dimensions
-            msg = f'({key}) {tmp.item():.5f}'
-        else:
-            arr = [f'{a.item():.5f}' for a in tmp]
-            msg = f'({key}) ' + ', '.join(arr)
-        msgs.append(msg)
-        
-    return ';'.join(msgs)
 
 
 class Trainer:
@@ -188,25 +175,25 @@ class Trainer:
             # Loss and Metrics
             train_loss.update(loss.detach().cpu(), x.size(0))    # Save loss
 
+            # For each metric update the corresponding meter
             for key, metric in self.metrics.items():
                 meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
 
-            # Print only every k steps and in the last iteration
-            if (self.rank == 0) and (k % self.print_every) == 0 or k == n_batches-1:
-                s = _message(meters)
+            # (Only for process 0): Print every 'print_every' steps and in the last iteration
+            if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
+                s = self._message(meters)
                 print(f'\r({self.rank}) Train: {k+1:5}/{n_batches}, Loss: {train_loss.avg:.5f}, Metrics: {s}', end='', flush=True)
 
-        if self.rank == 0: print('\n', end='')
-
-        print(f'loss ({self.rank}): {train_loss.sum}, {train_loss.count}\n', end='')
-
-        # Reduce loss and metrics from all processes. 
+        # Reduce loss
         loss_avg = self._reduce_meter(train_loss)
+        # Reduce metrics
+        meters_avg = [key: self._reduce_meter(meters[key]) for key in meters.keys()]
 
         if self.rank == 0:
-            print(f'avg loss: {loss_avg}')
+            s = self._message(meters_avg)
+            print(f'\nTotal | loss: {loss_avg}, Metrics: {s}\n', end='')
 
-        return loss_avg, meters
+        return loss_avg, meters_avg
 
     def _validation(self):
         n_batches = len(self.dl_validate)
@@ -224,7 +211,7 @@ class Trainer:
 
             # Print only every k steps and in the last iteration
             if (self.rank == 0) and (k % self.print_every) == 0 or k == n_batches-1:
-                s = _message(meters)
+                s = self._message(meters)
                 print(f'\r({self.rank}) Validate: {k+1:5}/{n_batches}, Metrics: {s}', end='', flush=True)
 
         if self.rank == 0: print()
@@ -247,13 +234,26 @@ class Trainer:
         # tensor = tensor.to(self.rank)
         tensor = torch.hstack([meter.sum, torch.tensor(meter.count)]).to(self.rank)
         torch.distributed.reduce(tensor, dst=0, op=torch.distributed.ReduceOp.SUM)
-        tensor.to('cpu')
+        tensor = tensor.to('cpu')
 
         # Return average
         # NOTE: only rank 0 returns the total average
         return tensor[:-1]/tensor[-1]
 
 
+    def _message(self, meters):
+        """ Build message for each meter in meters. """
+        msgs = []
+        for key, item in meters.items():
+            tmp = item.avg if isinstance(item, AverageMeter) else item
+            if tmp.size() == ():    # No dimensions
+                msg = f'({key}) {tmp.item():.5f}'
+            else:
+                arr = [f'{a.item():.5f}' for a in tmp]
+                msg = f'({key}) ' + ', '.join(arr)
+            msgs.append(msg)
+
+        return ';'.join(msgs)
 
     def _fill_hist(self, meter, hist):
         for key in meter.keys():
@@ -263,11 +263,11 @@ class Trainer:
         # One training step consists of:
         # 1. Train; 2. Validate; 3. Save loss and metrics
         # Train for one epoch
-        loss_avg, tr_met = self._train()
+        loss_avg, met_tr_avg = self._train()
 
         # Only rank 0 process saves the loss/metric history
         if self.rank == 0:
-            print(f'Saving training loss/metric: {loss_avg}')
+            print(f'Saving training loss/metric: {loss_avg}\n', end='')
             # self.hist_loss.append(tr_loss.avg)
             # self._fill_hist(tr_met, self.hist_train)
 

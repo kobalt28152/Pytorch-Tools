@@ -298,14 +298,18 @@ class Trainer:
             self._step()
             self.last_epoch += 1    # Update lase_epoch after each step
 
-            # Save checkpoint (only on process with rank 0)
-            if self.rank == 0 and (self.last_epoch % self.save_every) == 0:
+            # Process 0: save a checkpoint every 'save_evry' iterations
+            if self.rank == 0 and ((self.last_epoch+1) % self.save_every) == 0:
                 self._save_checkpoint(self.checkpoint)
 
             # If validation set provided and metrics comparison provided
             # check validation scores and save the model with the best score
             # if self.dl_validate and self.metrics_cmp:
                 # self.validate_scores()
+        
+        # Process 0: save a checkpoint after finishing training
+        if self.rank == 0:
+            self._save_checkpoint(self.checkpoint)
 
     def validate_scores(self):
         # For each metric with compare function

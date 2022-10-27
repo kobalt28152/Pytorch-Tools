@@ -288,30 +288,7 @@ class Trainer:
         # If scheduler provided advance its step
         if self.scheduler: self.scheduler.step()
 
-    def train(self, steps=1):
-        init = self.last_epoch+1    # continue after the last trained epoch
-        end = init + steps          # train for 'steps' epochs
-        for epoch in range(init, end):
-            b_sz = len(next(iter(self.dl_training))[0])
-            print(f"[GPU{self.rank}] Epoch {epoch} |  Batchsize: {b_sz} | Steps: {len(self.dl_training)}\n", end='')
-
-            self._step()
-            self.last_epoch += 1    # Update lase_epoch after each step
-
-            # Process 0: save a checkpoint every 'save_evry' iterations
-            if self.rank == 0 and ((self.last_epoch+1) % self.save_every) == 0:
-                self._save_checkpoint(self.checkpoint)
-
-            # If validation set provided and metrics comparison provided
-            # check validation scores and save the model with the best score
-            # if self.dl_validate and self.metrics_cmp:
-                # self.validate_scores()
-        
-        # Process 0: save a checkpoint after finishing training
-        if self.rank == 0:
-            self._save_checkpoint(self.checkpoint)
-
-    def validate_scores(self):
+    def _validate_scores(self):
         # For each metric with compare function
         for key in self.metrics_cmp:
             # Metric could be a (n,)-tensor; take average in such case.
@@ -322,6 +299,31 @@ class Trainer:
             # current value better than previou one, save model
             if self.metrics_cmp[key](cur, prev):
                 self.metrics_best[key] = cur
-                path = os.path.join(self.path, f'model_best-{key}.pt')
+                # path = os.path.join(self.path, f'model_best-{key}.pt')
+                path =  f'model_best-{key}.pt'
                 print(f'Saving parameters ({key}) at "{path}" ...')
                 torch.save(self.model.state_dict(), path)
+
+    def train(self, steps=1):
+        init = self.last_epoch+1    # continue after the last trained epoch
+        end = init + steps          # train for 'steps' epochs
+        for epoch in range(init, end):
+            # b_sz = len(next(iter(self.dl_training))[0])
+            print(f"[GPU{self.rank}] Epoch {epoch} |  Steps: {len(self.dl_training)}\n", end='')
+
+            self._step()
+            self.last_epoch += 1    # Update lase_epoch after each step
+
+            # Process 0: save a checkpoint every 'save_evry' iterations
+            if self.rank == 0 and ((self.last_epoch+1) % self.save_every) == 0:
+                self._save_checkpoint(self.checkpoint)
+
+            # Proces 0: If validation set provided and metrics comparison
+            # provided check validation scores and save the model with the best
+            # score.
+            if self.rank==0 and (self.dl_validate and self.metrics_cmp):
+                self._validate_scores()
+        
+        # Process 0: save a checkpoint after finishing training
+        if self.rank == 0:
+            self._save_checkpoint(self.checkpoint)

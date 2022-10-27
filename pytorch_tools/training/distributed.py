@@ -322,6 +322,8 @@ class Trainer:
             # provided check validation scores and save the model with the best
             # score.
             if self.rank==0 and (self.dl_validate and self.metrics_cmp):
+                print(self.metrics_cmp)
+                print(self.metrics_cmp)
                 self._validate_scores()
         
         # Process 0: save a checkpoint after finishing training

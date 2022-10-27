@@ -179,7 +179,7 @@ class Trainer:
             for key, metric in self.metrics.items():
                 meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
 
-            # (Only for process 0): Print every 'print_every' steps and in the last iteration
+            # Process 0: Print every 'print_every' steps and in the last iteration
             if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
                 s = self._message(meters)
                 print(f'\r({self.rank}) Train: {k+1:5}/{n_batches}, Loss: {train_loss.avg:.5f}, Metrics: {s}', end='', flush=True)
@@ -189,6 +189,7 @@ class Trainer:
         # Reduce metrics
         meters_avg = {key: self._reduce_meter(meters[key]) for key in meters.keys()}
 
+        # Process 0: print reduced loss and metrics
         if self.rank == 0:
             s = self._message(meters_avg)
             print(f'\nTotal | loss: {loss_avg}, Metrics: {s}\n', end='')
@@ -199,6 +200,10 @@ class Trainer:
         n_batches = len(self.dl_validate)
         meters = {key: AverageMeter(key) for key in self.metrics.keys()}
 
+        self.model.module.eval()
+
+        # No need to call set_epoch(); in validation shuffling is not necessary
+        # self.dl_validate.sampler.set_epoch(self.last_epoch+1)
         for k, (x, y) in enumerate(self.dl_validate):
             x = x.to(self.rank)
             y = y.to(self.rank)
@@ -206,20 +211,24 @@ class Trainer:
             with torch.no_grad():
                 pred = model(x)
 
+            # For each metric update the corresponding meter
             for key, metric in self.metrics.items():
                 meters[key].update(metric(pred, y).detach().cpu(), x.size(0))
 
-            # Print only every k steps and in the last iteration
-            if (self.rank == 0) and (k % self.print_every) == 0 or k == n_batches-1:
+            # Process 0: Print only every k steps and in the last iteration
+            if (self.rank == 0) and ((k % self.print_every) == 0 or k == n_batches-1):
                 s = self._message(meters)
                 print(f'\r({self.rank}) Validate: {k+1:5}/{n_batches}, Metrics: {s}', end='', flush=True)
 
-        if self.rank == 0: print()
+        # Reduce metrics
+        meters_avg = {key: self._reduce_meter(meters[key]) for key in meters.keys()}
 
-        # Gather metrics from all processes and print final result
-        # ...
+        # Process 0: print reduced metrics
+        if self.rank == 0:
+            s = self._message(meters_avg)
+            print(f'\nTotal | Metrics: {s}\n', end='')
 
-        return meters
+        return meters_avg
 
     def _reduce_meter(self, meter):
         # An AverageMeter has two members: sum and count, that must be reduced:
@@ -227,22 +236,20 @@ class Trainer:
         #     m2 -> sum = b1+b2+...+bm; count = m
         # reduce to:
         #    sum = a1+a2+...+an + b1+b2+...+bn; count = n + m
-        # torch.distributed.reduce(tensor, dst, op=<ReduceOp.SUM: 0>, group=None, async_op=False)
-        # tensor = torch.empty(meter.sum.size(0)+1, device='cpu')
-        # tensor[:-1] = meter.sum[:]
-        # tensor[-1] = meter.count
-        # tensor = tensor.to(self.rank)
+
+        # Stack both 'sum' and 'count' in a single Tensor
         tensor = torch.hstack([meter.sum, torch.tensor(meter.count)]).to(self.rank)
+        # Reduce
         torch.distributed.reduce(tensor, dst=0, op=torch.distributed.ReduceOp.SUM)
         tensor = tensor.to('cpu')
 
         # Return average
-        # NOTE: only rank 0 returns the total average
-        return tensor[:-1]/tensor[-1]
+        # NOTE: only rank 0 returns the total average.
+        return tensor[:-1]/tensor[-1]    # (a1+a2+...+an + b1+b2+...+bm) / (n+m)
 
 
     def _message(self, meters):
-        """ Build message for each meter in meters. """
+        # Build message for each meter in meters or for an array of tensors
         msgs = []
         for key, item in meters.items():
             tmp = item.avg if isinstance(item, AverageMeter) else item
@@ -255,9 +262,9 @@ class Trainer:
 
         return ';'.join(msgs)
 
-    def _fill_hist(self, meter, hist):
-        for key in meter.keys():
-            hist[key].append(meter[key].avg)
+    def _fill_hist(self, avgs, hist):
+        for key in avgs.keys():
+            hist[key].append(avgs[key])
 
     def _step(self):
         # One training step consists of:
@@ -267,15 +274,13 @@ class Trainer:
 
         # Only rank 0 process saves the loss/metric history
         if self.rank == 0:
-            print(f'Saving training loss/metric: {loss_avg}\n', end='')
-            # self.hist_loss.append(tr_loss.avg)
-            # self._fill_hist(tr_met, self.hist_train)
+            self.hist_loss.append(loss_avg)
+            self._fill_hist(met_tr_avg, self.hist_train)
 
         # Validate if validation set provided
         if self.dl_validate:
-            val_met = validate(self.model, self.dl_validate, self.metrics, device=self.device)
-            print('Saving validation loss/metric')
-            # self._fill_hist(val_met, self.hist_valid)
+            met_val_avg = self._validation()
+            self._fill_hist(met_val_avg, self.hist_valid)
 
         # If scheduler provided advance its step
         if self.scheduler: self.scheduler.step()

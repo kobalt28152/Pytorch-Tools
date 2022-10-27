@@ -67,7 +67,9 @@ class Trainer:
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.mixed = mixed
+
+        self.mixed = mixed                # Mixed precision
+        self.scaler = torch.cuda.amp.GradScaler()
 
         self.dl_training = dl_training    # Dataloaders for training and validation
         self.dl_validate = dl_validate
@@ -128,6 +130,8 @@ class Trainer:
         else:
             self.scheduler = None
 
+        self.scaler.load_state_dict(checkpoint['scaler'])
+
         # Process 0 : History only for rank 0 process
         if self.rank == 0:
             # History is stored in CPU
@@ -149,6 +153,7 @@ class Trainer:
             'model_state_dict': self.model.module.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict() if self.scheduler else None,
+            'scaler': self.scaler.state_dict(),
             'hist_loss': self.hist_loss,
             'hist_train': self.hist_train,
             'hist_valid': self.hist_valid,
@@ -161,6 +166,10 @@ class Trainer:
         meters = {key: AverageMeter(key) for key in self.metrics.keys()}
 
         self.model.module.train()
+
+        # NOTE: Buffers (e.g. BatchNorm stats) are broadcast from the module in
+        # process of rank 0, to all other replicas in the system in every
+        # iteration.
 
         # NOTE: we must call the set_epoch() method at the beginning of each
         # epoch before creating the DataLoader iterator to make shuffling work
@@ -231,7 +240,7 @@ class Trainer:
         # Process 0: print reduced metrics
         if self.rank == 0:
             s = self._message(meters_avg)
-            print(f'\nTotal | Metrics: {s}\n', end='')
+            print(f'\nTotal | Metrics: {s}\n\n', end='')
 
         return meters_avg
 
@@ -244,9 +253,8 @@ class Trainer:
         # backward pass for that op will produce float16 gradients. Gradient
         # values with small magnitudes may underflow and the update for the
         # corresponding parameters will be lost.
-        # Gradient scaling” multiplies the network’s loss(es) by a scale factor
-        # and invokes a backward pass on the scaled loss(es).
-        scaler = torch.cuda.amp.GradScaler()
+        # Gradient scaling (GradScaler) multiplies the network’s loss(es) by a
+        # scale factor and invokes a backward pass on the scaled loss(es).
 
         self.model.module.train()
         self.dl_training.sampler.set_epoch(self.last_epoch+1)
@@ -263,15 +271,15 @@ class Trainer:
 
             # Scales loss: Call backward() on a scaled loss to create scaled
             # gradients.
-            scaler.scale(loss).backward()
+            self.scaler.scale(loss).backward()
             # Each gradient should be unscaled before the optimizer updates the
             # parameters, so the scale factor does not interfere with the
             # learning rate. Thus scaler.step performs the following two
             # operations: 1) unscale gradients 2) optimizer.step()
-            scaler.step(self.optimizer)
+            self.scaler.step(self.optimizer)
 
             # Update the scale for next iteration.
-            scaler.update()
+            self.scaler.update()
 
             # Loss and Metrics
             train_loss.update(loss.detach().float().cpu(), x.size(0))    # Update loss meter
@@ -325,7 +333,7 @@ class Trainer:
         # Process 0: print reduced metrics
         if self.rank == 0:
             s = self._message(meters_avg)
-            print(f'\nTotal | Metrics: {s}\n', end='')
+            print(f'\nTotal | Metrics: {s}\n\n', end='')
 
         return meters_avg
 
@@ -425,11 +433,17 @@ class Trainer:
             if self.rank == 0 and ((self.last_epoch+1) % self.save_every) == 0:
                 self._save_checkpoint(self.checkpoint)
 
+            # Make sure no changes to the model happen while saving
+            torch.distributed.barrier()
+
             # Proces 0: If validation set provided and metrics comparison
             # provided check validation scores and save the model with the best
             # score.
             if self.rank==0 and (self.dl_validate and self.metrics_cmp):
                 self._validate_scores()
+
+            # Make sure no changes to the model happen while saving
+            torch.distributed.barrier()
         
         # Process 0: save a checkpoint after finishing training
         if self.rank == 0:

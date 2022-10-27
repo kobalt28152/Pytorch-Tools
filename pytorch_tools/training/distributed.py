@@ -272,7 +272,7 @@ class Trainer:
         # Train for one epoch
         loss_avg, met_tr_avg = self._train()
 
-        # Only rank 0 process saves the loss/metric history
+        # Process 0: save the training loss/metric scores
         if self.rank == 0:
             self.hist_loss.append(loss_avg)
             self._fill_hist(met_tr_avg, self.hist_train)
@@ -280,7 +280,10 @@ class Trainer:
         # Validate if validation set provided
         if self.dl_validate:
             met_val_avg = self._validation()
-            self._fill_hist(met_val_avg, self.hist_valid)
+
+            # Process 0: save the validation scores
+            if self.rank == 0:
+                self._fill_hist(met_val_avg, self.hist_valid)
 
         # If scheduler provided advance its step
         if self.scheduler: self.scheduler.step()
